@@ -1,0 +1,6 @@
+{
+  "name": "OmniRoute & OpenClaw Fly.io Deployment Stack",
+  "description": "Unified deployment stack configurator, architecture visualizer, and code bundle generator for combining OmniRoute AI Gateway with OpenClaw on Fly.io.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
