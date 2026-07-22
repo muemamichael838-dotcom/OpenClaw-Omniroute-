@@ -327,6 +327,19 @@ jobs:
           FLY_API_TOKEN: \${{ secrets.FLY_API_TOKEN }}
 `;
 
+  const envProductionContent = `# =======================================================
+# Fly.io Secret Import File (.env.production)
+# Format: KEY=VALUE pairs formatted for 'fly secrets import'
+# Usage: fly secrets import < .env.production --app ${config.appName}
+# =======================================================
+OPENCLAW_GATEWAY_TOKEN=${config.gatewayToken || 'openclaw-secret-key'}
+${config.openAiApiKey ? `OPENAI_API_KEY=${config.openAiApiKey}` : '# OPENAI_API_KEY='}
+${config.geminiApiKey ? `GEMINI_API_KEY=${config.geminiApiKey}` : '# GEMINI_API_KEY='}
+${config.anthropicApiKey ? `ANTHROPIC_API_KEY=${config.anthropicApiKey}` : '# ANTHROPIC_API_KEY='}
+${config.groqApiKey ? `GROQ_API_KEY=${config.groqApiKey}` : '# GROQ_API_KEY='}
+${config.openRouterApiKey ? `OPENROUTER_API_KEY=${config.openRouterApiKey}` : '# OPENROUTER_API_KEY='}
+`;
+
   return [
     {
       id: 'dockerfile',
@@ -335,6 +348,14 @@ jobs:
       language: 'dockerfile',
       description: 'Multi-stage Dockerfile bundling OmniRoute, OpenClaw, Redis, and Supervisor',
       content: dockerfileContent,
+    },
+    {
+      id: 'env-production',
+      path: '.env.production',
+      filename: '.env.production',
+      language: 'properties',
+      description: 'Secret configuration snippet formatted specifically for "fly secrets import" command',
+      content: envProductionContent,
     },
     {
       id: 'supervisord',
