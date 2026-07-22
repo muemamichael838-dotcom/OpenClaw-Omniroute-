@@ -25,56 +25,55 @@ export const initialConfig: StackConfig = {
 
 export function generateStackFiles(config: StackConfig): GeneratedFile[] {
   const dockerfileContent = `# =======================================================
-# STAGE 1: Build OmniRoute (Local AI Gateway)
+# STAGE 1: Build & Prune OmniRoute (Local AI Gateway)
 # =======================================================
 FROM node:${config.nodeVersion} AS omniroute-builder
 WORKDIR /app/omniroute
+ENV NODE_ENV=development
 COPY omniroute/package*.json ./
 RUN npm ci
 COPY omniroute/ .
-RUN npm run build --if-present
+RUN npm run build --if-present && \
+    npm prune --production && \
+    npm cache clean --force
 
 # =======================================================
-# STAGE 2: Build OpenClaw (Autonomous AI Assistant)
+# STAGE 2: Build & Prune OpenClaw (Autonomous AI Assistant)
 # =======================================================
 FROM node:${config.nodeVersion} AS openclaw-builder
 WORKDIR /app/openclaw
+ENV NODE_ENV=development
 RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY openclaw/package.json openclaw/pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile
 COPY openclaw/ .
-RUN pnpm build --if-present
+RUN pnpm build --if-present && \
+    pnpm prune --prod && \
+    pnpm store prune
 
 # =======================================================
-# STAGE 3: Final Runner Image
+# STAGE 3: Minified Production Runner Image
 # =======================================================
 FROM node:${config.nodeVersion} AS runner
 
-# Install supervisord process manager, Redis server, and essential CLI tools
-RUN apt-get update && apt-get install -y \\
+ENV NODE_ENV=production
+
+# Install minimal runtime dependencies & clean package index to minimize image size
+RUN apt-get update && apt-get install -y --no-install-recommends \\
     supervisor \\
     redis-server \\
-    git \\
     curl \\
     ca-certificates \\
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \\
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN corepack enable
 
 WORKDIR /app
 
-# Copy built OmniRoute application
+# Copy minified production builds and pruned dependencies from builder stages
 COPY --from=omniroute-builder /app/omniroute /app/omniroute
-WORKDIR /app/omniroute
-RUN npm prune --production
-
-# Copy built OpenClaw application
 COPY --from=openclaw-builder /app/openclaw /app/openclaw
-WORKDIR /app/openclaw
-RUN pnpm prune --prod
-
-# Back to root context
-WORKDIR /app
 
 # Create internal persistent storage directories on volume mount
 RUN mkdir -p ${config.mountPath}/omniroute ${config.mountPath}/openclaw
