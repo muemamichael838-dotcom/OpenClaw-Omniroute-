@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StackConfig } from '../types';
-import { Terminal, Copy, Check, CheckSquare, Square, Play, ShieldAlert, ArrowUpRight, Github, GitBranch, Key, Sparkles } from 'lucide-react';
+import { Terminal, Copy, Check, CheckSquare, Square, Play, ShieldAlert, ArrowUpRight, Github, GitBranch, Key, Sparkles, Pause, RotateCcw, Activity, Radio } from 'lucide-react';
 
 interface DeploymentChecklistProps {
   config: StackConfig;
@@ -16,6 +16,10 @@ export const DeploymentChecklist: React.FC<DeploymentChecklistProps> = ({ config
   });
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isStreamingLogs, setIsStreamingLogs] = useState<boolean>(false);
+  const [isLogPaused, setIsLogPaused] = useState<boolean>(false);
+  const [logIndex, setLogIndex] = useState<number>(0);
+  const logContainerRef = useRef<HTMLDivElement>(null);
 
   const toggleStep = (key: string) => {
     setCompletedSteps((prev) => ({
@@ -28,6 +32,63 @@ export const DeploymentChecklist: React.FC<DeploymentChecklistProps> = ({ config
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const simulatedLogSequence = [
+    { level: 'BUILD', text: `Initiating multi-stage Docker build for stack [${config.appName}]...` },
+    { level: 'BUILD', text: 'Step 1/14 : FROM redis:7.2-alpine' },
+    { level: 'BUILD', text: 'Step 2/14 : FROM node:20-alpine AS omniroute-builder' },
+    { level: 'BUILD', text: 'Step 3/14 : COPY omniroute/package.json ./ && npm install --production' },
+    { level: 'BUILD', text: 'Step 4/14 : FROM golang:1.22-alpine AS openclaw-builder' },
+    { level: 'BUILD', text: 'Step 5/14 : COPY openclaw/ ./ && go build -o /usr/local/bin/openclaw' },
+    { level: 'BUILD', text: 'Step 6/14 : COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf' },
+    { level: 'BUILD', text: 'Successfully compiled multi-process supervisord container image.' },
+    { level: 'DEPLOY', text: `Pushing image layer to registry.fly.io/${config.appName}:latest (42.8 MB)...` },
+    { level: 'DEPLOY', text: `Attaching persistent volume '${config.volumeName}' (${config.volumeSizeGb}GB) in region '${config.region}'` },
+    { level: 'DEPLOY', text: `Injecting encrypted secrets (OPENCLAW_GATEWAY_TOKEN, LLM_KEYS)...` },
+    { level: 'INIT', text: '[supervisord] 2026-07-22 04:28:30,012 INFO supervisord started with pid 1' },
+    { level: 'REDIS', text: `[redis] 1:M 22 Jul 2026 04:28:30.100 * Running standalone mode on port ${config.redisPort}` },
+    { level: 'REDIS', text: '[redis] 1:M 22 Jul 2026 04:28:30.102 * Memory storage engine initialized successfully' },
+    { level: 'OMNI', text: `[omniroute] [INFO] Starting OmniRoute proxy gateway engine on 0.0.0.0:${config.omniroutePort}` },
+    { level: 'OMNI', text: `[omniroute] [INFO] Routes: OpenAI (${config.openAiApiKey ? 'Ready' : 'Unconfigured'}), Gemini (${config.geminiApiKey ? 'Ready' : 'Unconfigured'}), Anthropic (${config.anthropicApiKey ? 'Ready' : 'Unconfigured'}), Groq (${config.groqApiKey ? 'Ready' : 'Unconfigured'}), OpenRouter (${config.openRouterApiKey ? 'Ready' : 'Unconfigured'})` },
+    { level: 'CLAW', text: `[openclaw] 2026/07/22 04:28:30 [INFO] OpenClaw Agent Gateway listening on 0.0.0.0:${config.gatewayPort}` },
+    { level: 'CLAW', text: '[openclaw] 2026/07/22 04:28:30 [INFO] Bearer token verification active for gateway requests' },
+    { level: 'HEALTH', text: `[health-check] GET http://127.0.0.1:${config.gatewayPort}/health -> 200 OK (0.6ms)` },
+    { level: 'HEALTH', text: `[fly-ingress] Machine 9080e72f102048 [app] is healthy! Routing public HTTPS traffic.` },
+    { level: 'SUCCESS', text: `🚀 Deployment complete! Live URL: https://${config.appName}.fly.dev` },
+  ];
+
+  useEffect(() => {
+    if (!isStreamingLogs || isLogPaused) return;
+
+    if (logIndex >= simulatedLogSequence.length) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setLogIndex((prev) => prev + 1);
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [isStreamingLogs, isLogPaused, logIndex, simulatedLogSequence.length]);
+
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logIndex, isStreamingLogs]);
+
+  const startStream = () => {
+    setIsStreamingLogs(true);
+    setIsLogPaused(false);
+    if (logIndex >= simulatedLogSequence.length) {
+      setLogIndex(1);
+    }
+  };
+
+  const resetStream = () => {
+    setLogIndex(0);
+    setIsLogPaused(false);
   };
 
   const githubPushScript = `# 1. Initialize local repository & add stack files
@@ -115,14 +176,135 @@ fly logs --app ${config.appName}`,
           </p>
         </div>
 
-        <button
-          onClick={() => copyToClipboard(fullScript, 'full')}
-          className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition flex items-center gap-2 shrink-0"
-        >
-          {copiedId === 'full' ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
-          {copiedId === 'full' ? 'All Commands Copied!' : 'Copy Entire Deploy Script'}
-        </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            onClick={() => {
+              if (isStreamingLogs) {
+                setIsStreamingLogs(false);
+              } else {
+                startStream();
+              }
+            }}
+            className={`px-3.5 py-2 rounded-lg text-xs font-semibold shadow transition flex items-center gap-2 ${
+              isStreamingLogs
+                ? 'bg-amber-600/20 text-amber-300 border border-amber-500/40 hover:bg-amber-600/30'
+                : 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/30'
+            }`}
+          >
+            <Radio className={`w-4 h-4 ${isStreamingLogs ? 'animate-pulse text-amber-400' : 'text-emerald-400'}`} />
+            <span>{isStreamingLogs ? 'Hide Live Log Stream' : 'Live Log Stream Simulation'}</span>
+          </button>
+
+          <button
+            onClick={() => copyToClipboard(fullScript, 'full')}
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition flex items-center gap-2 shrink-0"
+          >
+            {copiedId === 'full' ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+            {copiedId === 'full' ? 'All Commands Copied!' : 'Copy Entire Deploy Script'}
+          </button>
+        </div>
       </div>
+
+      {/* Live Log Stream Terminal Simulation Panel */}
+      {isStreamingLogs && (
+        <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-2xl transition-all">
+          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-rose-500/80"></div>
+                <div className="w-3 h-3 rounded-full bg-amber-500/80"></div>
+                <div className="w-3 h-3 rounded-full bg-emerald-500/80"></div>
+              </div>
+              <span className="text-xs font-mono font-bold text-slate-300 flex items-center gap-2">
+                <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Docker & Fly.io Startup Stream — {config.appName}</span>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs">
+              {logIndex >= simulatedLogSequence.length ? (
+                <span className="px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Stack Boot Complete</span>
+                </span>
+              ) : isLogPaused ? (
+                <span className="px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-semibold flex items-center gap-1.5">
+                  <Pause className="w-3.5 h-3.5" />
+                  <span>Stream Paused</span>
+                </span>
+              ) : (
+                <span className="px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[11px] font-semibold flex items-center gap-1.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                  </span>
+                  <span>Streaming Logs ({logIndex}/{simulatedLogSequence.length})</span>
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsLogPaused(!isLogPaused)}
+                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition flex items-center gap-1"
+                title={isLogPaused ? "Resume Stream" : "Pause Stream"}
+              >
+                {isLogPaused ? <Play className="w-3 h-3 text-emerald-400" /> : <Pause className="w-3 h-3 text-amber-400" />}
+                <span>{isLogPaused ? 'Resume' : 'Pause'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={resetStream}
+                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition flex items-center gap-1"
+                title="Restart Log Stream"
+              >
+                <RotateCcw className="w-3 h-3 text-indigo-400" />
+                <span>Replay</span>
+              </button>
+            </div>
+          </div>
+
+          <div
+            ref={logContainerRef}
+            className="p-4 font-mono text-[11px] leading-relaxed max-h-80 overflow-y-auto space-y-1 bg-slate-950 text-slate-300"
+          >
+            {simulatedLogSequence.slice(0, logIndex).map((log, idx) => {
+              const getBadgeColor = (lvl: string) => {
+                switch (lvl) {
+                  case 'BUILD': return 'bg-purple-950/80 text-purple-300 border-purple-800';
+                  case 'DEPLOY': return 'bg-blue-950/80 text-blue-300 border-blue-800';
+                  case 'REDIS': return 'bg-rose-950/80 text-rose-300 border-rose-800';
+                  case 'OMNI': return 'bg-cyan-950/80 text-cyan-300 border-cyan-800';
+                  case 'CLAW': return 'bg-amber-950/80 text-amber-300 border-amber-800';
+                  case 'HEALTH': return 'bg-emerald-950/80 text-emerald-300 border-emerald-800';
+                  case 'SUCCESS': return 'bg-emerald-900 text-emerald-200 border-emerald-500 font-bold';
+                  default: return 'bg-slate-800 text-slate-300 border-slate-700';
+                }
+              };
+
+              return (
+                <div key={idx} className="flex items-start gap-2.5 hover:bg-slate-900/50 py-0.5 px-1 rounded transition">
+                  <span className="text-slate-600 shrink-0 text-[10px]">
+                    {String(idx + 1).padStart(2, '0')}
+                  </span>
+                  <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${getBadgeColor(log.level)} shrink-0`}>
+                    {log.level}
+                  </span>
+                  <span className={log.level === 'SUCCESS' ? 'text-emerald-300 font-bold' : 'text-slate-300'}>
+                    {log.text}
+                  </span>
+                </div>
+              );
+            })}
+
+            {logIndex === 0 && (
+              <div className="text-slate-500 italic text-center py-6">
+                Click "Resume" or wait for container initialization stream to begin...
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Checklist Grid */}
       <div className="space-y-4">

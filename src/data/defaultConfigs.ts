@@ -245,38 +245,64 @@ echo "✅ Stack deployment complete!"
 echo "Access OpenClaw dashboard at: https://$APP_NAME.fly.dev"
 `;
 
-  const readmeContent = `# ${config.appName} — OmniRoute + OpenClaw Co-Located Fly.io Deployment
+  const readmeContent = `# ${config.appName} — OmniRoute + OpenClaw Co-Located Fly.io Deployment Stack
 
-This directory contains the complete multi-process deployment bundle for running **OmniRoute** (local AI gateway) and **OpenClaw** (autonomous personal AI assistant) in a single Fly Machine.
+This repository contains the complete multi-process deployment bundle for running **OmniRoute** (AI gateway router) and **OpenClaw** (autonomous personal AI assistant) co-located inside a single Fly Machine container.
 
-## Architecture Summary
-- **Public Gateway Port**: \`${config.gatewayPort}\` (OpenClaw Web Interface & WebSocket)
-- **Local Proxy Port**: \`${config.omniroutePort}\` (OmniRoute OpenAI-compatible proxy, isolated to localhost)
-- **Local Redis Cache**: \`${config.redisPort}\` (Internal rate limiter and model response cache)
-- **Persistent Volume**: \`${config.mountPath}\` (\`${config.volumeName}\`, ${config.volumeSizeGb} GB)
+## 🏗️ Stack Architecture
+- **Public Gateway**: Port \`${config.gatewayPort}\` (OpenClaw Web Console & WebSocket)
+- **Local AI Proxy**: Port \`${config.omniroutePort}\` (OmniRoute OpenAI-compatible model router, bound to localhost)
+- **Local Redis Storage**: Port \`${config.redisPort}\` (Internal rate-limiter, session store & model cache)
+- **Persistent NVMe Mount**: \`${config.mountPath}\` (\`${config.volumeName}\`, ${config.volumeSizeGb} GB in region \`${config.region}\`)
 
-## Quick Start Deployment
+## 🔑 Upstream Provider & Environment Secrets
+Configure secrets securely in Fly.io using \`fly secrets set\`:
+- \`OPENCLAW_GATEWAY_TOKEN\`: Admin token for OpenClaw dashboard
+- \`OPENAI_API_KEY\`: OpenAI models (GPT-4o, etc.)
+- \`GEMINI_API_KEY\`: Google Gemini models
+- \`ANTHROPIC_API_KEY\`: Anthropic Claude models
+- \`GROQ_API_KEY\`: Groq ultra-fast Llama inference models
+- \`OPENROUTER_API_KEY\`: OpenRouter provider fallback routes
 
-1. **Clone with submodules**:
+## 🚀 Quick Start Deployment
+
+### 1. Automated Script
+\`\`\`bash
+chmod +x deploy.sh
+./deploy.sh
+\`\`\`
+
+### 2. Manual Fly CLI Deployment
+\`\`\`bash
+# Create Fly application & volume
+fly apps create ${config.appName}
+fly volumes create ${config.volumeName} --size ${config.volumeSizeGb} --region ${config.region} --app ${config.appName}
+
+# Set security token
+fly secrets set OPENCLAW_GATEWAY_TOKEN="${config.gatewayToken}" --app ${config.appName}
+
+# Deploy stack container
+fly deploy --app ${config.appName}
+\`\`\`
+
+## 🤖 GitHub Actions CI/CD Deployment
+This stack includes \`.github/workflows/deploy.yml\` for continuous deployment:
+1. Push this repository to GitHub:
    \`\`\`bash
-   git submodule update --init --recursive
+   git init && git add .
+   git commit -m "feat: stack release"
+   gh repo create ${config.appName} --public --source=. --remote=origin --push
    \`\`\`
-
-2. **Run setup & deploy script**:
+2. Retrieve your Fly API token:
    \`\`\`bash
-   chmod +x deploy.sh
-   ./deploy.sh
+   fly auth token
    \`\`\`
+3. On GitHub, navigate to **Settings → Secrets and variables → Actions**.
+4. Create a new repository secret named \`FLY_API_TOKEN\` containing your Fly token.
+5. Every push to \`main\` or \`master\` will automatically build and deploy your stack to Fly.io.
 
-3. **Or manually execute Fly CLI commands**:
-   \`\`\`bash
-   fly volumes create ${config.volumeName} --size ${config.volumeSizeGb} --region ${config.region}
-   fly secrets set OPENCLAW_GATEWAY_TOKEN="${config.gatewayToken}"
-   fly deploy
-   \`\`\`
-
-4. **Access your assistant**:
-   Navigating to \`https://${config.appName}.fly.dev\` and login with your gateway token.
+## 🌐 Accessing Your Deployment
+Navigate to \`https://${config.appName}.fly.dev\` and enter your \`OPENCLAW_GATEWAY_TOKEN\` to access the OpenClaw management console.
 `;
 
   const githubWorkflowContent = `name: Deploy to Fly.io
